@@ -1,6 +1,8 @@
+import math
+from typing import Tuple
+
 import torch
 import torch.nn as nn
-import math
 
 
 class InputEmbeddings(nn.Module):
@@ -10,8 +12,18 @@ class InputEmbeddings(nn.Module):
         self.vocab_size = vocab_size
         self.embedding = nn.Embedding(vocab_size, d_model)
 
-    def forward(self, x):
-        """(batch, seq_len) -> (batch, seq_len, d_model)"""
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        x : torch.Tensor
+            (batch, seq_len)
+
+        Returns
+        -------
+        torch.Tensor
+            (batch, seq_len, d_model)
+        """
 
         return self.embedding(x) + math.sqrt(self.d_model)
 
@@ -38,8 +50,18 @@ class PositionalEncoding(nn.Module):
         pe = pe.unsqueeze(0)  # (1, seq_len, d_model)
         self.register_buffer("pe", pe)
 
-    def forward(self, x):
-        """(batch, seq_len, d_model) -> (batch, seq_len, d_model)"""
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        x : torch.Tensor
+            (batch, seq_len, d_model)
+
+        Returns
+        -------
+        torch.Tensor
+            (batch, seq_len, d_model)
+        """
 
         x = x + (self.pe[:, : x.shape[1], :]).requires_grad_(False)
         return self.dropout(x)
@@ -53,8 +75,18 @@ class LayerNormalization(nn.Module):
         self.gamma = nn.Parameter(torch.ones(1))  # [1]
         self.beta = nn.Parameter(torch.zeros(1))  # [0]
 
-    def forward(self, x):
-        """(batch, seq_len, d_model) -> (batch, seq_len, d_model)"""
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        x : torch.Tensor
+            (batch, seq_len, d_model)
+
+        Returns
+        -------
+        torch.Tensor
+            (batch, seq_len, d_model)
+        """
 
         mean = x.mean(dim=-1, keepdim=True)  # (batch, seq_len)
         std = x.std(dim=-1, keepdim=True)  # (batch, seq_len)
@@ -80,7 +112,32 @@ class MultiHeadAttentionBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     @staticmethod
-    def attention(query, key, value, mask, dropout: nn.Dropout):
+    def attention(
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        mask: torch.Tensor,
+        dropout: nn.Dropout,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Calculate masked attention scores and apply dropout
+
+        Parameters
+        ----------
+        query : torch.Tensor
+            (batch, heads, seq_len, d_k)
+        key : torch.Tensor
+            (batch, heads, seq_len, d_k)
+        value : torch.Tensor
+            (batch, heads, seq_len, d_k)
+        mask : torch.Tensor
+            (batch, 1, seq_len, seq_len)
+        dropout : nn.Dropout
+
+        Returns
+        -------
+        Tuple[torch.Tensor, torch.Tensor]
+            (batch, heads, seq_len, d_k), (batch, heads, seq_len, seq_len)
+        """
         d_k = query.shape[-1]
 
         attention_scores = (query @ key.transpose(-2, -1)) / math.sqrt(d_k)
@@ -92,17 +149,34 @@ class MultiHeadAttentionBlock(nn.Module):
             dim=-1
         )  # (batch, heads, seq_len, seq_len)
         if dropout is not None:
-            attention_scores = dropout(attention_scores)
+            attention_scores: torch.Tensor = dropout(attention_scores)
 
         return (attention_scores @ value), attention_scores
 
-    def forward(self, q, k, v, mask):
-        """(batch, seq_len, d_model), ... , (batch, 1, seq_len, seq_len)
-        -> (batch, seq_len, d_model)"""
+    def forward(
+        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        q : torch.Tensor
+            (batch, seq_len, d_model)
+        k : torch.Tensor
+            (batch, seq_len, d_model)
+        v : torch.Tensor
+            (batch, seq_len, d_model)
+        mask : torch.Tensor
+            (batch, 1, seq_len, seq_len)
 
-        query = self.w_q(q)
-        key = self.w_k(k)
-        value = self.w_v(v)
+        Returns
+        -------
+        torch.Tensor
+            (batch, seq_len, d_model)
+        """
+
+        query: torch.Tensor = self.w_q(q)
+        key: torch.Tensor = self.w_k(k)
+        value: torch.Tensor = self.w_v(v)
 
         # (batch, seq_len, d_model) -> (batch, seq_len, heads, d_k) -> (batch, heads, seq_len, d_k)
         query = query.view(
