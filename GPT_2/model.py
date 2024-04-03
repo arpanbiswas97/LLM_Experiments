@@ -198,4 +198,81 @@ class MultiHeadAttentionBlock(nn.Module):
         return self.w_o(x)
 
 
-class Transformer(nn.Module): ...
+class SkipConnection(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x: torch.Tensor, sublayer: nn.Module):
+        """
+        Parameters
+        ----------
+        x : torch.Tensor
+            (batch, seq_len, d_model)
+        sublayer : nn.Module
+            (batch, seq_len, d_model) -> (batch, seq_len, d_model)
+
+        Returns
+        -------
+        torch.Tensor
+            (batch, seq_len, d_model)
+        """
+
+        return x +(sublayer(x))
+    
+
+class DropoutLayer(nn.Module):
+
+    def __init__(self, dropout: float):
+        super().__init__()
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x:torch.Tensor):
+        """
+        Parameters
+        ----------
+        x : torch.Tensor
+            (batch, seq_len, d_model)
+
+        Returns
+        -------
+        torch.Tensor
+            (batch, seq_len, d_model)
+        """
+
+        return self.dropout
+    
+
+class MultiLayerPerception(nn.Module):
+
+    def __init__(self, d_model, d_mlp ):
+        super().__init__()
+        self.linear_1    = nn.Linear(d_model,d_mlp)    # d_mlp = 4*d_model
+        self.gelu    = nn.GELU()
+        self.linear_2  = nn.Linear(d_mlp, d_model)
+
+    def forward(self, x:torch.Tensor):
+        """
+        Parameters
+        ----------
+        x : torch.Tensor
+            (batch, seq_len, d_model)
+        Returns
+        -------
+        torch.Tensor
+            (batch, seq_len, d_model)
+        """
+        x = self.linear_1(x)
+        x = self.gelu(x)
+        x = self.linear_2(x)
+        return x
+
+class TransformerBlock(nn.Module): 
+    def __init__(self, d_model, d_mlp, dropout, heads):
+        super().__init__()
+        attention_layer = nn.Sequential(LayerNormalization(), MultiHeadAttentionBlock(d_model, heads, dropout), DropoutLayer(dropout))
+        skip_1 = SkipConnection()
+        norm_1 = LayerNormalization()
+
+
+
