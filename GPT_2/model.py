@@ -178,7 +178,7 @@ class MultiHeadAttentionBlock(nn.Module):
         key: torch.Tensor = self.w_k(k)
         value: torch.Tensor = self.w_v(v)
 
-        # (batch, seq_len, d_model) -> (batch, seq_len, heads, d_k) -> (batch, heads, seq_len, d_k)
+        # (batch, seq_len, d_model) -> (batch, heads, seq_len, d_k)
         query = query.view(
             query.shape[0], query.shape[1], self.heads, self.d_k
         ).transpose(1, 2)
@@ -218,8 +218,8 @@ class SkipConnection(nn.Module):
             (batch, seq_len, d_model)
         """
 
-        return x +(sublayer(x))
-    
+        return x + (sublayer(x))
+
 
 class DropoutLayer(nn.Module):
 
@@ -227,7 +227,7 @@ class DropoutLayer(nn.Module):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x:torch.Tensor):
+    def forward(self, x: torch.Tensor):
         """
         Parameters
         ----------
@@ -241,17 +241,17 @@ class DropoutLayer(nn.Module):
         """
 
         return self.dropout
-    
+
 
 class MultiLayerPerception(nn.Module):
 
-    def __init__(self, d_model, d_mlp ):
+    def __init__(self, d_model, d_mlp):  # d_mlp is usually 4*d_model
         super().__init__()
-        self.linear_1    = nn.Linear(d_model,d_mlp)    # d_mlp = 4*d_model
-        self.gelu    = nn.GELU()
-        self.linear_2  = nn.Linear(d_mlp, d_model)
+        self.linear_1 = nn.Linear(d_model, d_mlp)
+        self.gelu = nn.GELU()
+        self.linear_2 = nn.Linear(d_mlp, d_model)
 
-    def forward(self, x:torch.Tensor):
+    def forward(self, x: torch.Tensor):
         """
         Parameters
         ----------
@@ -267,12 +267,14 @@ class MultiLayerPerception(nn.Module):
         x = self.linear_2(x)
         return x
 
-class TransformerBlock(nn.Module): 
+
+class TransformerBlock(nn.Module):
     def __init__(self, d_model, d_mlp, dropout, heads):
         super().__init__()
-        attention_layer = nn.Sequential(LayerNormalization(), MultiHeadAttentionBlock(d_model, heads, dropout), DropoutLayer(dropout))
+        attention_layer = nn.Sequential(
+            LayerNormalization(),
+            MultiHeadAttentionBlock(d_model, heads, dropout),
+            DropoutLayer(dropout),
+        )
         skip_1 = SkipConnection()
         norm_1 = LayerNormalization()
-
-
-
