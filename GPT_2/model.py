@@ -245,13 +245,13 @@ class DropoutLayer(nn.Module):
 
 class MultiLayerPerception(nn.Module):
 
-    def __init__(self, d_model, d_mlp):  # d_mlp is usually 4*d_model
+    def __init__(self, d_model: int, d_mlp: int):  # d_mlp is usually 4*d_model
         super().__init__()
         self.linear_1 = nn.Linear(d_model, d_mlp)
         self.gelu = nn.GELU()
         self.linear_2 = nn.Linear(d_mlp, d_model)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Parameters
         ----------
@@ -269,12 +269,119 @@ class MultiLayerPerception(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, d_mlp, dropout, heads):
+
+    def __init__(self, d_model: int, d_mlp: int, dropout: float, heads: int) -> None:
         super().__init__()
-        attention_layer = nn.Sequential(
+        self.attention_block = nn.Sequential(
             LayerNormalization(),
             MultiHeadAttentionBlock(d_model, heads, dropout),
             DropoutLayer(dropout),
         )
-        skip_1 = SkipConnection()
-        norm_1 = LayerNormalization()
+        self.skip_1 = SkipConnection()
+        self.norm = LayerNormalization()
+        self.mlp = nn.Sequential(
+            MultiLayerPerception(d_model, d_mlp), DropoutLayer(dropout)
+        )
+        self.skip_2 = SkipConnection()
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        x : torch.Tensor
+            (batch, seq_len, d_model)
+        mask : torch.Tensor
+            (batch, 1, seq_len, seq_len)
+
+        Returns
+        -------
+        torch.Tensor
+            (batch, seq_len, d_model)
+        """
+        x = self.skip_1(x, lambda x: self.attention_block(x, x, x, mask))
+        x = self.norm(x)
+        x = self.skip_2(x, self.mlp)
+        return x
+
+
+class ProjectionLayer(nn.Module):
+    def __init__(self, d_model: int, vocab_size: int) -> None:
+        super().__init__()
+        self.proj = nn.Linear(d_model, vocab_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        x : torch.Tensor
+            (batch, seq_len, d_model)
+
+        Return
+        ------
+        torch.Tensor
+            (batch, seq_len, vocab_size)
+        """
+        return torch.log_softmax(self.proj(x), dim=-1)
+
+
+class GPT2(nn.Module):
+
+    def __init__(
+        self,
+        d_model: int,
+        d_mlp: int,
+        dropout: float,
+        heads: int,
+        N: int,
+        vocab_size: int,
+        seq_len: int,
+    ) -> None:
+        super().__init__()
+        self.input_embedding = InputEmbeddings(d_model, vocab_size)
+        self.positional_encoding = PositionalEncoding(d_model, seq_len, dropout)
+        self.transformer_blocks = nn.ModuleList(
+            [TransformerBlock(d_model, d_mlp, dropout, heads) for _ in range(N)]
+        )
+        self.norm = LayerNormalization()
+        self.proj = ProjectionLayer(d_model, vocab_size)
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """
+        Parameters
+        ----------
+        x : torch.Tensor
+            (batch, seq_len)
+        mask : torch.Tensor
+            (batch, 1, seq_len, seq_len)
+
+        Returns
+        -------
+        torch.Tensor
+            (batch, seq_len, vocab_size)
+        """
+        x = self.input_embedding(x)
+        x = self.positional_encoding(x)
+        for block in self.transformer_blocks:
+            x = block(x, mask)
+        x = self.norm(x)
+        x = self.proj(x)
+        return x
+
+
+def build_gpt2(
+    vocab_size: int,
+    d_model: int,
+    d_mlp: int,
+    seq_len: int,
+    heads: int,
+    N: int,
+    dropout: float,
+) -> GPT2:
+
+    gpt2 = GPT2(d_model, d_mlp, dropout, heads, N, vocab_size, seq_len)
+
+    for p in gpt2.parameters():
+        if p.dim() > 1:
+            nn.init.xavier_uniform_(p)
+
+    return gpt2
