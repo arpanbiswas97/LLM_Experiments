@@ -1,0 +1,2 @@
+checkpoints_folder: MODELS/GPT2
+tokenizer_file: gpt2_tokenizer
