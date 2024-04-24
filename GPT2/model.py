@@ -240,7 +240,7 @@ class DropoutLayer(nn.Module):
             (batch, seq_len, d_model)
         """
 
-        return self.dropout
+        return self.dropout(x)
 
 
 class MultiLayerPerception(nn.Module):
@@ -272,17 +272,22 @@ class TransformerBlock(nn.Module):
 
     def __init__(self, d_model: int, d_mlp: int, dropout: float, heads: int) -> None:
         super().__init__()
-        self.attention_block = nn.Sequential(
-            LayerNormalization(),
-            MultiHeadAttentionBlock(d_model, heads, dropout),
-            DropoutLayer(dropout),
-        )
+        self.attention_norm = LayerNormalization()
+        self.attention_multihead = MultiHeadAttentionBlock(d_model, heads, dropout)
+        self.attention_drop = DropoutLayer(dropout)
+
         self.skip_1 = SkipConnection()
         self.norm = LayerNormalization()
         self.mlp = nn.Sequential(
             MultiLayerPerception(d_model, d_mlp), DropoutLayer(dropout)
         )
         self.skip_2 = SkipConnection()
+
+    def _attention_forward(self, x, mask):
+        x = self.attention_norm(x)
+        x = self.attention_multihead(x, x, x, mask)
+        x = self.attention_drop(x)
+        return x
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """
@@ -298,7 +303,8 @@ class TransformerBlock(nn.Module):
         torch.Tensor
             (batch, seq_len, d_model)
         """
-        x = self.skip_1(x, lambda x: self.attention_block(x, x, x, mask))
+
+        x = self.skip_1(x, lambda x: self._attention_forward(x, mask))
         x = self.norm(x)
         x = self.skip_2(x, self.mlp)
         return x
