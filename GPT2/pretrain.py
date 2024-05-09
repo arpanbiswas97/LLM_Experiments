@@ -26,12 +26,12 @@ def latest_weights_file_path(config: GPT2Config) -> Path:
 def greedy_decode(model, input, mask, tokenizer, seq_len, device):
 
     decoder_input = (
-        torch.empty(1, seq_len // 2 + 1)
+        torch.empty(1, seq_len)
         .fill_(tokenizer.token_to_id("[PAD]"))
         .type_as(input)
         .to(device)
     )
-    decoder_input[0 : seq_len // 2] = input[0 : seq_len // 2]
+    decoder_input[0][0 : seq_len // 2] = input[0][0 : seq_len // 2]
     while True:
 
         if decoder_input.size(1) == seq_len:
@@ -55,7 +55,7 @@ def greedy_decode(model, input, mask, tokenizer, seq_len, device):
 
 
 def run_validation(
-    model, val_data, tokenizer, device, seq_len, print_msg, num_examples=2
+    model, val_data, tokenizer, device, seq_len, num_examples=2
 ):
     model.eval()
     count = 0
@@ -74,19 +74,19 @@ def run_validation(
 
             model_out = greedy_decode(model, input, mask, tokenizer, seq_len, device)
 
-            source_text = tokenizer.decode(input.detach().cpu().numpy())
-            model_out_text = tokenizer.decode(model_out.detach().cpu().numpy())
+            source_text = tokenizer.decode(input.cpu().numpy()[0])
+            model_out_text = tokenizer.decode(model_out.cpu().numpy())
 
             source_texts.append(source_text)
             predicted_texts.append(model_out_text)
 
             # Print the source, target and model output
-            print_msg("-" * console_width)
-            print_msg(f"{f'SOURCE: ':>12}{source_text}")
-            print_msg(f"{f'PREDICTED: ':>12}{model_out_text}")
+            print("-" * console_width)
+            print(f"{f'SOURCE: ':>12}{source_text}")
+            print(f"{f'PREDICTED: ':>12}{model_out_text}")
 
             if count == num_examples:
-                print_msg("-" * console_width)
+                print("-" * console_width)
                 break
 
 
@@ -163,9 +163,14 @@ def train_model(config: GPT2Config):
             # Run the tensors through the encoder, decoder and the projection layer
             decoder_output = model(input, mask)  # (B, seq_len, vocab_size)
 
+            # (B, seq_len, vocab_size) -> (B * seq_len, vocab_size)
+            decoder_output = decoder_output.view(-1, decoder_output.size(-1))
+            # (B, seq_len) -> (B * seq_len)
+            input = input.view(-1)
+
             # Compute the loss using a simple cross entropy
-            loss = loss_fn(decoder_output, f.one_hot(input, num_classes=tokenizer.get_vocab_size()))
-            batch_iterator.set_postfix({"loss": f"{loss.item():6.3f}"})
+            loss = loss_fn(decoder_output, input)
+            # print({"loss": f"{loss.item():6.3f}"})
 
             # Backpropagate the loss
             loss.backward()
@@ -181,9 +186,8 @@ def train_model(config: GPT2Config):
             model,
             test_dataloader,
             tokenizer,
-            config.seq_len,
             device,
-            lambda msg: batch_iterator.write(msg),
+            config.seq_len,
         )
 
         # Save the model at the end of every epoch
