@@ -32,31 +32,42 @@ def greedy_decode(model, input, mask, tokenizer, seq_len, device):
         .to(device)
     )
     decoder_input[0][0 : seq_len // 2] = input[0][0 : seq_len // 2]
-    while True:
 
-        if decoder_input.size(1) == seq_len:
-            break
-
-        # build mask for target
+    for i in range(seq_len // 2, seq_len):
         decoder_mask = causal_mask(input.size(1)).type_as(mask).to(device)
+        out_prob = model(decoder_input, decoder_mask)[:, i]
+        # _, next_word = torch.max(out_prob, dim=1)
 
-        out_prob = model(decoder_input, decoder_mask)[:, -1]
-        _, next_word = torch.max(out_prob, dim=1)
+        # Get top n words with highest probability and select one randomly
+        n = 5
+        top_n = torch.topk(out_prob, n, dim=1)
+        next_word = top_n.indices[0][torch.randint(0, n, (1,))]
 
-        decoder_input = torch.cat(
-            [
-                decoder_input,
-                torch.empty(1, 1).type_as(input).fill_(next_word.item()).to(device),
-            ],
-            dim=1,
-        )
+        decoder_input[0][i] = next_word.item()
+
+    # while True:
+
+    #     if decoder_input.size(1) == seq_len:
+    #         break
+
+    #     # build mask for target
+    #     decoder_mask = causal_mask(input.size(1)).type_as(mask).to(device)
+
+    #     out_prob = model(decoder_input, decoder_mask)[:, -1]
+    #     _, next_word = torch.max(out_prob, dim=1)
+
+    #     decoder_input = torch.cat(
+    #         [
+    #             decoder_input,
+    #             torch.empty(1, 1).type_as(input).fill_(next_word.item()).to(device),
+    #         ],
+    #         dim=1,
+    #     )
 
     return decoder_input.squeeze(0)
 
 
-def run_validation(
-    model, val_data, tokenizer, device, seq_len, num_examples=2
-):
+def run_validation(model, val_data, tokenizer, device, seq_len, num_examples=2):
     model.eval()
     count = 0
 
@@ -85,6 +96,7 @@ def run_validation(
             print(f"{f'SOURCE: ':>12}{source_text}")
             print(f"{f'PREDICTED: ':>12}{model_out_text}")
 
+            count += 1
             if count == num_examples:
                 print("-" * console_width)
                 break
@@ -111,7 +123,7 @@ def train_model(config: GPT2Config):
     train_dataloader = DataLoader(
         train_dataset, batch_size=config.batch_size, shuffle=True
     )
-    test_dataloader = DataLoader(test_dataset, batch_size=1)
+    test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=True)
 
     model = build_gpt2(
         tokenizer.get_vocab_size(),
@@ -148,6 +160,15 @@ def train_model(config: GPT2Config):
         print("No model to preload, starting from scratch")
 
     loss_fn = nn.NLLLoss(ignore_index=tokenizer.token_to_id("[PAD]")).to(device)
+
+    # Run validation before training
+    run_validation(
+        model,
+        test_dataloader,
+        tokenizer,
+        device,
+        config.seq_len,
+    )
 
     for epoch in range(initial_epoch, config.epochs):
         torch.cuda.empty_cache()
